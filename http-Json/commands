@@ -1,0 +1,5 @@
+curl -X POST -s localhost:8099/api/v1/list -d '{"FirstName":"FirstName", "LastName":"LastName", "Age":24}'
+curl -X GET -s localhost:8099/api/v1/list
+curl -X GET -s localhost:8099/api/v1/list/48f9eec6-e3ed-4075-9c37-b0affcacd683
+curl -X PUT -s localhost:8099/api/v1/list/48f9eec6-e3ed-4075-9c37-b0affcacd683 -d '{"FirstName":"Bodja","LastName":"Volykh","Age":26}'
+curl -X DELETE -s localhost:8099/api/v1/list/48f9eec6-e3ed-4075-9c37-b0affcacd683
