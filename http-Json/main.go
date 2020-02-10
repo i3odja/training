@@ -11,7 +11,7 @@ func main() {
 	address := flag.String("port", ":8099", "port")
 	flag.Parse()
 
-	sp := mewSQLPeople()
+	sp := newSQLPeople()
 	defer sp.dbase.Close()
 
 	mainRoute := sp.Routing()

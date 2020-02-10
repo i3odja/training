@@ -24,7 +24,7 @@ type SQLPeople struct {
 	dbase *sql.DB
 }
 
-func mewSQLPeople() *SQLPeople {
+func newSQLPeople() *SQLPeople {
 	var cr Credentials
 
 	credentials := cr.SetCredentials()
@@ -38,7 +38,7 @@ func mewSQLPeople() *SQLPeople {
 	}
 }
 
-func (sqlPeople *SQLPeople) AddNewPerson(w http.ResponseWriter, r *http.Request) {
+func (s *SQLPeople) AddNewPerson(w http.ResponseWriter, r *http.Request) {
 	var person Person
 
 	if err := json.NewDecoder(r.Body).Decode(&person); err != nil {
@@ -49,7 +49,7 @@ func (sqlPeople *SQLPeople) AddNewPerson(w http.ResponseWriter, r *http.Request)
 
 	person.ID = uuid.New().String()
 
-	_, err := sqlPeople.dbase.Exec("INSERT INTO people(ID,Firstname,Lastname,Age) VALUES(?,?,?,?)", person.ID, person.Firstname, person.Lastname, person.Age)
+	_, err := s.dbase.Exec("INSERT INTO people(ID,Firstname,Lastname,Age) VALUES(?,?,?,?)", person.ID, person.Firstname, person.Lastname, person.Age)
 	if err != nil {
 		log.Println(err)
 		return
@@ -58,7 +58,7 @@ func (sqlPeople *SQLPeople) AddNewPerson(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (sqlPeople *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request) {
+func (s *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request) {
 	var people []Person
 
 	vars := mux.Vars(r)
@@ -71,11 +71,12 @@ func (sqlPeople *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request)
 
 	page--
 
-	rows, err := sqlPeople.dbase.Query("SELECT ID,Firstname,Lastname,Age FROM people WHERE Disabled=0 LIMIT ?,?", page*offset, offset)
+	rows, err := s.dbase.Query("SELECT ID,Firstname,Lastname,Age FROM people WHERE Disabled=0 LIMIT ?,?", page*offset, offset)
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	defer rows.Close()
 
 	for rows.Next() {
 		var p Person
@@ -85,11 +86,11 @@ func (sqlPeople *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request)
 			continue
 		}
 
-		if err = rows.Err(); err != nil {
-			log.Println(err)
-			continue
-		}
 		people = append(people, p)
+	}
+	if err = rows.Err(); err != nil {
+		log.Println(err)
+		return
 	}
 
 	if len(people) == 0 {
@@ -103,12 +104,12 @@ func (sqlPeople *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (sqlPeople *SQLPeople) GetOnePerson(w http.ResponseWriter, r *http.Request) {
+func (s *SQLPeople) GetOnePerson(w http.ResponseWriter, r *http.Request) {
 	var p Person
 
 	vars := mux.Vars(r)
 
-	row := sqlPeople.dbase.QueryRow("SELECT ID,Firstname,Lastname,Age FROM people WHERE ID=?", vars["ID"])
+	row := s.dbase.QueryRow("SELECT ID,Firstname,Lastname,Age FROM people WHERE ID=?", vars["ID"])
 
 	if err := row.Scan(&p.ID, &p.Firstname, &p.Lastname, &p.Age); err != nil {
 		log.Println(err)
@@ -120,7 +121,7 @@ func (sqlPeople *SQLPeople) GetOnePerson(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func (sqlPeople *SQLPeople) UpdateOnePerson(w http.ResponseWriter, r *http.Request) {
+func (s *SQLPeople) UpdateOnePerson(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
 	var p Person
@@ -133,18 +134,17 @@ func (sqlPeople *SQLPeople) UpdateOnePerson(w http.ResponseWriter, r *http.Reque
 
 	p.ID = vars["ID"]
 
-	if _, err := sqlPeople.dbase.Exec("UPDATE people SET Firstname=?,Lastname=?,Age=? WHERE ID=?", p.Firstname, p.Lastname, p.Age, p.ID); err != nil {
-		log.Println(err.Error())
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func (sqlPeople *SQLPeople) DeleteOnePerson(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-
-	if _, err := sqlPeople.dbase.Exec("UPDATE people SET Disabled=1 WHERE ID=?", vars["ID"]); err != nil {
+	if _, err := s.dbase.Exec("UPDATE people SET Firstname=?,Lastname=?,Age=? WHERE ID=?", p.Firstname, p.Lastname, p.Age, p.ID); err != nil {
 		log.Println(err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+}
+
+func (s *SQLPeople) DeleteOnePerson(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	if _, err := s.dbase.Exec("UPDATE people SET Disabled=1 WHERE ID=?", vars["ID"]); err != nil {
+		log.Println(err.Error())
+		return
+	}
 }
