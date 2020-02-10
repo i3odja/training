@@ -5,26 +5,18 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-
-	"github.com/gorilla/mux"
 )
 
 func main() {
-	address := flag.String("a", ":8099", "url port")
+	address := flag.String("port", ":8099", "port")
 	flag.Parse()
 
-	var pr People
+	sp := newSQLPeople()
+	defer sp.dbase.Close()
 
-	mainRoute := mux.NewRouter()
-	apiRoute := mainRoute.PathPrefix("/api/v1").Subrouter()
-	// [C]reat-[R]ead-[U]pdate-[D]elete
-	apiRoute.HandleFunc("/list", pr.GetPeople).Methods("GET")
-	apiRoute.HandleFunc("/list/{ID}", pr.GetPerson).Methods("GET")
-	apiRoute.HandleFunc("/list", pr.AddPerson).Methods("POST")
-	apiRoute.HandleFunc("/list/{ID}", pr.EditPerson).Methods("PUT")
-	apiRoute.HandleFunc("/list/{ID}", pr.DeletePersonFromPeople).Methods("DELETE")
+	mainRoute := sp.Routing()
 
-	fmt.Println("Server Listening...")
+	fmt.Printf("[port%v] Server Listening...", *address)
 	err := http.ListenAndServe(*address, mainRoute)
 	if err != nil {
 		log.Fatal(err.Error())

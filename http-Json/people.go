@@ -1,84 +1,150 @@
 package main
 
 import (
-	"net/http"
-
+	"database/sql"
+	"encoding/json"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	jsonIterator "github.com/json-iterator/go"
+	"log"
+	"net/http"
+	"strconv"
 )
 
+const offset = 10
+
 type Person struct {
-	ID      	string `json:"ID"`
-	FirstName 	string `json:"FirstName"`
-	LastName	string `json:"LastName"`
-	Age     	int    `json:"Age"`
+	ID        string `json:"ID"`
+	Firstname string `json:"Firstname"`
+	Lastname  string `json:"Lastname"`
+	Age       int    `json:"Age"`
 }
 
-type People struct {
-	people []Person
+type SQLPeople struct {
+	dbase *sql.DB
 }
 
-// [C]reate[R][U][D]
-func (pr *People) AddPerson(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func newSQLPeople() *SQLPeople {
+	var cr Credentials
 
+	credentials := cr.SetCredentials()
+	dataBase, err := sql.Open("mysql", credentials)
+	if err != nil {
+		log.Println(err)
+	}
+
+	return &SQLPeople{
+		dbase: dataBase,
+	}
+}
+
+func (s *SQLPeople) AddNewPerson(w http.ResponseWriter, r *http.Request) {
 	var person Person
 
-	checkError(jsonIterator.NewDecoder(r.Body).Decode(&person))
+	if err := json.NewDecoder(r.Body).Decode(&person); err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
 	person.ID = uuid.New().String()
-	pr.people = append(pr.people, person)
-	checkError(jsonIterator.NewEncoder(w).Encode(&person))
+
+	_, err := s.dbase.Exec("INSERT INTO people(ID,Firstname,Lastname,Age) VALUES(?,?,?,?)", person.ID, person.Firstname, person.Lastname, person.Age)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
-// [C][R]ead[U][D]
-func (pr *People) GetPeople(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	checkError(jsonIterator.NewEncoder(w).Encode(pr.people))
-}
-
-// [C]reate[R][U][D]
-func (pr *People) GetPerson(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *SQLPeople) GetAllPeople(w http.ResponseWriter, r *http.Request) {
+	var people []Person
 
 	vars := mux.Vars(r)
+	page, err := strconv.Atoi(vars["PAGE"])
 
-	for _, person := range pr.people {
-		if checkPersonById(person.ID, vars["ID"]) {
-			checkError(jsonIterator.NewEncoder(w).Encode(person))
-			return
+	if err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	page--
+
+	rows, err := s.dbase.Query("SELECT ID,Firstname,Lastname,Age FROM people WHERE Disabled=0 LIMIT ?,?", page*offset, offset)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var p Person
+
+		if err = rows.Scan(&p.ID, &p.Firstname, &p.Lastname, &p.Age); err != nil {
+			log.Println(err)
+			continue
 		}
+
+		people = append(people, p)
+	}
+	if err = rows.Err(); err != nil {
+		log.Println(err)
+		return
+	}
+
+	if len(people) == 0 {
+		log.Println("Error: No Rows")
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	if err = json.NewEncoder(w).Encode(people); err != nil {
+		log.Println(err)
 	}
 }
 
-// [C][R][U]pdate[D]
-func (pr *People) EditPerson(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *SQLPeople) GetOnePerson(w http.ResponseWriter, r *http.Request) {
+	var p Person
 
 	vars := mux.Vars(r)
 
-	for i, person := range pr.people {
-		if checkPersonById(person.ID, vars["ID"]) {
-			var p Person
+	row := s.dbase.QueryRow("SELECT ID,Firstname,Lastname,Age FROM people WHERE ID=?", vars["ID"])
 
-			checkError(jsonIterator.NewDecoder(r.Body).Decode(&p))
-			p.ID = person.ID
-			checkError(jsonIterator.NewEncoder(w).Encode(p))
-			pr.people[i] = p
-		}
+	if err := row.Scan(&p.ID, &p.Firstname, &p.Lastname, &p.Age); err != nil {
+		log.Println(err)
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(p); err != nil {
+		log.Println(err.Error())
 	}
 }
 
-// [C][R][U][D]elete
-func (pr *People) DeletePersonFromPeople(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
+func (s *SQLPeople) UpdateOnePerson(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
-	for i, person := range pr.people {
-		if checkPersonById(person.ID, vars["ID"]) {
-			pr.people = append(pr.people[:i], pr.people[i+1:]...)
-			break
-		}
+	var p Person
+
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	p.ID = vars["ID"]
+
+	if _, err := s.dbase.Exec("UPDATE people SET Firstname=?,Lastname=?,Age=? WHERE ID=?", p.Firstname, p.Lastname, p.Age, p.ID); err != nil {
+		log.Println(err.Error())
+		return
+	}
+}
+
+func (s *SQLPeople) DeleteOnePerson(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	if _, err := s.dbase.Exec("UPDATE people SET Disabled=1 WHERE ID=?", vars["ID"]); err != nil {
+		log.Println(err.Error())
+		return
 	}
 }
